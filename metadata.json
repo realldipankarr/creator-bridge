@@ -1,0 +1,6 @@
+{
+  "name": "Creator Bridge",
+  "description": "Gated onboarding platform connecting verified digital creators with brand collaboration opportunities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
