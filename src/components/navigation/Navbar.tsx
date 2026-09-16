@@ -20,7 +20,7 @@ interface NavbarProps {
   onSwitchRole: (role: 'creator' | 'admin') => void;
   onSignOut: () => void;
   onResetDemo: () => void;
-  onSelectQuickAccount?: (type: 'approved' | 'pending' | 'rejected' | 'activated' | 'new') => void;
+  onSelectQuickAccount?: (type: 'approved' | 'pending' | 'rejected' | 'activated' | 'new' | 'admin') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -58,35 +58,37 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Center / Right controls */}
         <div className="flex items-center gap-1.5 sm:gap-3">
-          {/* Role Mode Toggle Switcher - Mobile friendly sizing */}
-          <div className="flex items-center bg-slate-800/90 border border-slate-700 p-0.5 sm:p-1 rounded-lg">
-            <button
-              id="nav-role-creator"
-              onClick={() => onSwitchRole('creator')}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1 min-h-[36px] sm:min-h-0 ${
-                activeRole === 'creator'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Creator</span>
-            </button>
-            <button
-              id="nav-role-admin"
-              onClick={() => onSwitchRole('admin')}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1 min-h-[36px] sm:min-h-0 ${
-                activeRole === 'admin'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Shield className="w-3.5 h-3.5" />
-              <span>Admin<span className="hidden sm:inline">&nbsp;Portal</span></span>
-            </button>
-          </div>
+          {/* RBAC: Hide top Admin Portal button unless currentUser?.role === 'admin' */}
+          {currentUser?.role === 'admin' && (
+            <div className="flex items-center bg-slate-800/90 border border-slate-700 p-0.5 sm:p-1 rounded-lg">
+              <button
+                id="nav-role-creator"
+                onClick={() => onSwitchRole('creator')}
+                className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1 min-h-[36px] sm:min-h-0 ${
+                  activeRole === 'creator'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Creator</span>
+              </button>
+              <button
+                id="nav-role-admin"
+                onClick={() => onSwitchRole('admin')}
+                className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1 min-h-[36px] sm:min-h-0 ${
+                  activeRole === 'admin'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Shield className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Admin<span className="hidden sm:inline">&nbsp;Portal</span></span>
+              </button>
+            </div>
+          )}
 
-          {/* Quick Demo State Switcher - Visible on mobile too */}
+          {/* Quick Demo State Switcher */}
           {onSelectQuickAccount && (
             <div className="relative">
               <button
@@ -150,8 +152,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                   <div className="border-t border-slate-700 my-1"></div>
                   <button
+                    onClick={() => onSelectQuickAccount('admin')}
+                    className="w-full text-left px-2.5 py-2.5 rounded-lg hover:bg-slate-700 text-amber-300 flex items-center gap-2"
+                  >
+                    <Shield className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div>
+                      <p className="font-medium">Admin Team (admin@creatorbridge.in)</p>
+                      <p className="text-[11px] text-slate-400">RBAC Administrator Role</p>
+                    </div>
+                  </button>
+                  <button
                     onClick={() => onSelectQuickAccount('new')}
-                    className="w-full text-left px-2.5 py-2.5 rounded-lg hover:bg-slate-700 text-indigo-300 font-medium"
+                    className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-slate-700 text-indigo-300 font-medium"
                   >
                     + New Google Sign-In / Blank
                   </button>

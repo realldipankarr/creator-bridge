@@ -23,18 +23,28 @@ export interface OrderRecord {
   createdAt: string;
 }
 
+export interface SessionRecord {
+  token: string;
+  userId: string;
+  role: 'creator' | 'admin';
+  email: string;
+  createdAt: string;
+}
+
 // In-memory persistent state
 interface Database {
   users: Map<string, User>;
   profiles: Map<string, CreatorProfile>;
   opportunities: CampaignOpportunity[];
   orders: Map<string, OrderRecord>;
+  sessions: Map<string, SessionRecord>;
 }
 
 const db: Database = {
   users: new Map(),
   profiles: new Map(),
   orders: new Map(),
+  sessions: new Map(),
   opportunities: [
     {
       id: 'opp-1',
@@ -78,14 +88,23 @@ const db: Database = {
 // Seed demo users and profiles
 function seedInitialData() {
   // Demo Admin
+  const adminToken = 'cb_sess_admin_master_secret';
   const adminUser: User = {
     id: 'user-admin',
     email: 'admin@creatorbridge.in',
     name: 'Admin Verification Team',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80',
     role: 'admin',
+    token: adminToken,
   };
   db.users.set(adminUser.id, adminUser);
+  db.sessions.set(adminToken, {
+    token: adminToken,
+    userId: adminUser.id,
+    role: 'admin',
+    email: adminUser.email,
+    createdAt: new Date().toISOString(),
+  });
 
   // Demo Approved Creator (ready to pay or already active)
   const approvedUser: User = {
@@ -209,6 +228,9 @@ app.post('/api/auth/google', (req, res) => {
     }
   }
 
+  const isAdminEmail = email.toLowerCase() === 'admin@creatorbridge.in';
+  const effectiveRole: 'creator' | 'admin' = (role === 'admin' || isAdminEmail) ? 'admin' : (user ? user.role : 'creator');
+
   if (!user) {
     const newId = 'usr_' + Math.random().toString(36).substring(2, 9);
     user = {
@@ -216,14 +238,63 @@ app.post('/api/auth/google', (req, res) => {
       email,
       name: name || email.split('@')[0],
       avatar: avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name || email)}`,
-      role: role === 'admin' ? 'admin' : 'creator',
+      role: effectiveRole,
     };
+    db.users.set(user.id, user);
+  } else if (isAdminEmail && user.role !== 'admin') {
+    user.role = 'admin';
     db.users.set(user.id, user);
   }
 
+  // Generate cryptographically secure session token
+  const sessionToken = 'cb_sess_' + crypto.randomBytes(24).toString('hex');
+  db.sessions.set(sessionToken, {
+    token: sessionToken,
+    userId: user.id,
+    role: user.role,
+    email: user.email,
+    createdAt: new Date().toISOString(),
+  });
+
+  const userWithToken = { ...user, token: sessionToken };
   const profile = db.profiles.get(user.id) || null;
-  res.json({ user, profile });
+  res.json({ user: userWithToken, profile, token: sessionToken });
 });
+
+// Admin Authorization Middleware (RBAC Security Guard)
+export function requireAdminAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ')
+    ? authHeader.substring(7)
+    : (req.headers['x-session-token'] as string | undefined) || (req.query.token as string | undefined);
+
+  if (!token) {
+    return res.status(401).json({
+      error: 'Unauthorized: Session authentication token is required to access administrator endpoints.',
+      code: 'AUTH_TOKEN_MISSING',
+    });
+  }
+
+  const session = db.sessions.get(token);
+  if (!session) {
+    return res.status(401).json({
+      error: 'Unauthorized: Invalid or expired session token. Please sign in with an administrator account.',
+      code: 'AUTH_SESSION_INVALID',
+    });
+  }
+
+  const user = db.users.get(session.userId);
+  if (!user || user.role !== 'admin' || session.role !== 'admin') {
+    return res.status(403).json({
+      error: 'Forbidden: 403 Access Denied. Administrator role clearance is required.',
+      code: 'INSUFFICIENT_ADMIN_PERMISSIONS',
+    });
+  }
+
+  (req as any).user = user;
+  (req as any).session = session;
+  next();
+}
 
 // Switch role or get user
 app.get('/api/users/:id', (req, res) => {
@@ -291,8 +362,8 @@ export function extractAndValidateInstagram(usernameInput: string, linkInput: st
   };
 }
 
-// List all applications (Admin)
-app.get('/api/applications', (req, res) => {
+// List all applications (Admin Gated)
+app.get('/api/applications', requireAdminAuth, (req, res) => {
   const { status, category, search } = req.query;
   let allProfiles = Array.from(db.profiles.values());
 
@@ -411,8 +482,8 @@ app.post('/api/applications', (req, res) => {
   res.json({ profile: newProfile });
 });
 
-// Admin Review Mutation (Step 4)
-app.post('/api/admin/review', (req, res) => {
+// Admin Review Mutation (Step 4 - Admin Gated)
+app.post('/api/admin/review', requireAdminAuth, (req, res) => {
   const { profileId, status, adminFeedback, rejectionReason } = req.body;
 
   if (!profileId || !status) {
@@ -672,8 +743,8 @@ app.post('/api/payment/webhook', (req, res) => {
   });
 });
 
-// Test/Simulation endpoint for Razorpay Webhook
-app.post('/api/payment/simulate-webhook', (req, res) => {
+// Test/Simulation endpoint for Razorpay Webhook (Admin Gated)
+app.post('/api/payment/simulate-webhook', requireAdminAuth, (req, res) => {
   const { profileId, event = 'payment.captured' } = req.body;
 
   if (!profileId) {
@@ -745,7 +816,8 @@ app.get('/api/opportunities', (req, res) => {
   res.json({ opportunities: opps });
 });
 
-app.post('/api/opportunities', (req, res) => {
+// Admin Create Opportunity (Admin Gated)
+app.post('/api/opportunities', requireAdminAuth, (req, res) => {
   const { title, brandName, category, description, budgetRange, deliverables, deadline } = req.body;
 
   if (!title || !brandName || !category || !description || !budgetRange) {
@@ -769,8 +841,8 @@ app.post('/api/opportunities', (req, res) => {
   res.json({ success: true, opportunity: newOpp });
 });
 
-// Seed/Reset test data
-app.post('/api/admin/seed-demo', (req, res) => {
+// Seed/Reset test data (Admin Gated)
+app.post('/api/admin/seed-demo', requireAdminAuth, (req, res) => {
   seedInitialData();
   res.json({
     success: true,

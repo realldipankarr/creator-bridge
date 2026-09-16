@@ -15,6 +15,7 @@ export interface User {
   name: string;
   avatar: string;
   role: 'creator' | 'admin';
+  token?: string;
 }
 
 export interface CreatorProfile {

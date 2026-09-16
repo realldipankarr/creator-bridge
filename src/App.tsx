@@ -8,6 +8,7 @@ import { ApplicationStatusView } from './components/creator/ApplicationStatusVie
 import { RazorpayPaymentModal } from './components/creator/RazorpayPaymentModal.tsx';
 import { CreatorDashboard } from './components/dashboard/CreatorDashboard.tsx';
 import { AdminDashboard } from './components/admin/AdminDashboard.tsx';
+import { UnauthorizedAdminAccess } from './components/admin/UnauthorizedAdminAccess.tsx';
 import { LegalModal, LegalDocType } from './components/legal/LegalModal.tsx';
 import type {
   CampaignOpportunity,
@@ -23,6 +24,7 @@ import {
   loginWithGoogle,
   resetDemoData,
   reviewApplication,
+  setSessionToken,
   submitProfile,
 } from './lib/api.ts';
 
@@ -51,7 +53,23 @@ export default function App() {
   const [allApplications, setAllApplications] = useState<CreatorProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Initial load: log in as default creator or load opportunities
+  // Sync hash routing with activeRole to intercept manual #admin or #/admin visits
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.toLowerCase();
+      if (hash === '#admin' || hash === '#/admin') {
+        setActiveRole('admin');
+      } else if (hash === '#creator' || hash === '#/creator' || hash === '') {
+        setActiveRole('creator');
+      }
+    };
+
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // Initial load
   useEffect(() => {
     initializeApp();
   }, []);
@@ -60,7 +78,6 @@ export default function App() {
     setIsLoading(true);
     try {
       await reloadOpportunities();
-      await reloadApplications();
     } catch (err) {
       console.error('Initialization error:', err);
     } finally {
@@ -82,7 +99,17 @@ export default function App() {
       const data = await fetchApplications();
       setAllApplications(data.applications);
     } catch (err) {
-      console.error('Failed to load applications:', err);
+      // Non-admins cannot fetch applications (handled silently)
+    }
+  };
+
+  const handleSwitchRole = (role: 'creator' | 'admin') => {
+    setActiveRole(role);
+    if (role === 'admin') {
+      window.location.hash = 'admin';
+      reloadApplications();
+    } else {
+      window.location.hash = '';
     }
   };
 
@@ -104,19 +131,24 @@ export default function App() {
     setCurrentUser(res.user);
     setCurrentProfile(res.profile);
     setIsEditingProfile(false);
-    await reloadApplications();
+    if (res.user.role === 'admin') {
+      await reloadApplications();
+    }
   };
 
   // Sign out
   const handleSignOut = () => {
+    setSessionToken(null);
     setCurrentUser(null);
     setCurrentProfile(null);
     setIsEditingProfile(false);
+    setActiveRole('creator');
+    window.location.hash = '';
   };
 
   // Quick Persona Switcher (For rapid testing across all states)
   const handleSelectQuickAccount = async (
-    type: 'approved' | 'pending' | 'rejected' | 'activated' | 'new'
+    type: 'approved' | 'pending' | 'rejected' | 'activated' | 'new' | 'admin'
   ) => {
     setIsLoading(true);
     try {
@@ -124,28 +156,43 @@ export default function App() {
         const res = await loginWithGoogle('rohan.tech@gmail.com', 'Rohan Sharma');
         setCurrentUser(res.user);
         setCurrentProfile(res.profile);
+        setActiveRole('creator');
+        window.location.hash = '';
       } else if (type === 'pending') {
         const res = await loginWithGoogle('priya.beats@gmail.com', 'Priya Nair');
         setCurrentUser(res.user);
         setCurrentProfile(res.profile);
+        setActiveRole('creator');
+        window.location.hash = '';
       } else if (type === 'rejected') {
         const res = await loginWithGoogle('vikram.gamer@gmail.com', 'Vikram Joshi');
         setCurrentUser(res.user);
         setCurrentProfile(res.profile);
+        setActiveRole('creator');
+        window.location.hash = '';
       } else if (type === 'activated') {
         const res = await loginWithGoogle('ananya.creates@gmail.com', 'Ananya Deshmukh');
         setCurrentUser(res.user);
         setCurrentProfile(res.profile);
+        setActiveRole('creator');
+        window.location.hash = '';
+      } else if (type === 'admin') {
+        const res = await loginWithGoogle('admin@creatorbridge.in', 'Admin Verification Team', undefined, 'admin');
+        setCurrentUser(res.user);
+        setCurrentProfile(null);
+        setActiveRole('admin');
+        window.location.hash = 'admin';
+        await reloadApplications();
       } else if (type === 'new') {
         // Blank account for testing Step 1 -> Step 2
         const randomId = Math.random().toString(36).substring(2, 6);
         const res = await loginWithGoogle(`new.creator.${randomId}@gmail.com`, 'New Creator');
         setCurrentUser(res.user);
         setCurrentProfile(null);
+        setActiveRole('creator');
+        window.location.hash = '';
       }
       setIsEditingProfile(false);
-      setActiveRole('creator');
-      await reloadApplications();
     } finally {
       setIsLoading(false);
     }
@@ -215,7 +262,7 @@ export default function App() {
         currentUser={currentUser}
         currentProfile={currentProfile}
         activeRole={activeRole}
-        onSwitchRole={setActiveRole}
+        onSwitchRole={handleSwitchRole}
         onSignOut={handleSignOut}
         onResetDemo={handleResetDemoData}
         onSelectQuickAccount={handleSelectQuickAccount}
@@ -232,25 +279,34 @@ export default function App() {
             </div>
           </div>
         ) : activeRole === 'admin' ? (
-          /* ADMIN PORTAL */
-          <AdminDashboard
-            applications={allApplications}
-            opportunities={opportunities}
-            onReviewApplication={handleAdminReview}
-            onCreateOpportunity={handleCreateOpportunity}
-            onResetDemo={handleResetDemoData}
-            onRefreshApplications={reloadApplications}
-            isLoading={isLoading}
-          />
+          /* RBAC ROUTE PROTECTION: Gate Admin Dashboard by user?.role === 'admin' */
+          currentUser?.role === 'admin' ? (
+            <AdminDashboard
+              applications={allApplications}
+              opportunities={opportunities}
+              onReviewApplication={handleAdminReview}
+              onCreateOpportunity={handleCreateOpportunity}
+              onResetDemo={handleResetDemoData}
+              onRefreshApplications={reloadApplications}
+              isLoading={isLoading}
+            />
+          ) : (
+            <UnauthorizedAdminAccess
+              currentUser={currentUser}
+              onReturnToHome={() => handleSwitchRole('creator')}
+              onSignInAsAdmin={() => handleSelectQuickAccount('admin')}
+            />
+          )
         ) : (
           /* CREATOR FLOW */
           <div className="flex-1 flex flex-col">
             {/* Step 1: Not logged in */}
             {!currentUser && (
               <GoogleLoginView
+                currentUser={currentUser}
                 onLogin={handleGoogleLogin}
                 onOpenLegal={setActiveLegalModal}
-                onOpenAdminPortal={() => setActiveRole('admin')}
+                onOpenAdminPortal={() => handleSwitchRole('admin')}
               />
             )}
 

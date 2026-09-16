@@ -7,12 +7,44 @@ import type {
   User,
 } from '../types.ts';
 
+let activeSessionToken: string | null = null;
+
+export function setSessionToken(token: string | null): void {
+  activeSessionToken = token;
+  if (token) {
+    try {
+      localStorage.setItem('cb_session_token', token);
+    } catch {}
+  } else {
+    try {
+      localStorage.removeItem('cb_session_token');
+    } catch {}
+  }
+}
+
+export function getSessionToken(): string | null {
+  if (activeSessionToken) return activeSessionToken;
+  try {
+    const saved = localStorage.getItem('cb_session_token');
+    if (saved) {
+      activeSessionToken = saved;
+      return saved;
+    }
+  } catch {}
+  return null;
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  const token = getSessionToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function loginWithGoogle(
   email: string,
   name?: string,
   avatar?: string,
   role: 'creator' | 'admin' = 'creator',
-): Promise<{ user: User; profile: CreatorProfile | null }> {
+): Promise<{ user: User; profile: CreatorProfile | null; token?: string }> {
   const res = await fetch('/api/auth/google', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -22,7 +54,13 @@ export async function loginWithGoogle(
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.error || 'Failed to authenticate with Google');
   }
-  return res.json();
+  const data = await res.json();
+  if (data.token) {
+    setSessionToken(data.token);
+  } else if (data.user?.token) {
+    setSessionToken(data.user.token);
+  }
+  return data;
 }
 
 export async function fetchUserById(
@@ -78,9 +116,14 @@ export async function fetchApplications(
   if (category && category !== 'All') params.set('category', category);
   if (search) params.set('search', search);
 
-  const res = await fetch(`/api/applications?${params.toString()}`);
+  const res = await fetch(`/api/applications?${params.toString()}`, {
+    headers: {
+      ...getAuthHeaders(),
+    },
+  });
   if (!res.ok) {
-    throw new Error('Failed to fetch applications');
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Failed to fetch applications (Admin access required)');
   }
   return res.json();
 }
@@ -93,7 +136,10 @@ export async function reviewApplication(
 ): Promise<{ success: boolean; profile: CreatorProfile }> {
   const res = await fetch('/api/admin/review', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify({ profileId, status, adminFeedback, rejectionReason }),
   });
   if (!res.ok) {
@@ -109,7 +155,10 @@ export async function simulateRazorpayWebhook(
 ): Promise<{ success: boolean; message: string; profile: CreatorProfile }> {
   const res = await fetch('/api/payment/simulate-webhook', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify({ profileId, event }),
   });
   if (!res.ok) {
@@ -172,7 +221,10 @@ export async function createOpportunity(
 ): Promise<{ success: boolean; opportunity: CampaignOpportunity }> {
   const res = await fetch('/api/opportunities', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify(data),
   });
   if (!res.ok) {
@@ -183,5 +235,14 @@ export async function createOpportunity(
 }
 
 export async function resetDemoData(): Promise<void> {
-  await fetch('/api/admin/seed-demo', { method: 'POST' });
+  const res = await fetch('/api/admin/seed-demo', {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+    },
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Failed to reset demo data');
+  }
 }

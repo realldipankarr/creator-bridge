@@ -13,11 +13,13 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import type { LegalDocType } from '../legal/LegalModal.tsx';
+import type { User } from '../../types.ts';
 
 interface GoogleLoginViewProps {
   onLogin: (email: string, name?: string, avatar?: string) => Promise<void>;
   onOpenLegal: (type: LegalDocType) => void;
   onOpenAdminPortal?: () => void;
+  currentUser?: User | null;
   defaultEmail?: string;
   autoOpenJoinModal?: boolean;
 }
@@ -26,6 +28,7 @@ export const GoogleLoginView: React.FC<GoogleLoginViewProps> = ({
   onLogin,
   onOpenLegal,
   onOpenAdminPortal,
+  currentUser,
   defaultEmail = 'exposeg16@gmail.com',
   autoOpenJoinModal = false,
 }) => {
@@ -231,7 +234,7 @@ export const GoogleLoginView: React.FC<GoogleLoginViewProps> = ({
               <ArrowRight className="w-4 h-4" />
             </button>
 
-            {onOpenAdminPortal && (
+            {currentUser?.role === 'admin' && onOpenAdminPortal && (
               <button
                 id="btn-landing-admin"
                 onClick={onOpenAdminPortal}
